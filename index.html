@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conservation Composer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d0d1a;--surface:#161625;--surface2:#1e1e30;--accent:#6c5ce7;--accent2:#a29bfe;--text:#e2e2f0;--dim:#7a7a9a;--green:#00cec9;--red:#ff6b6b;--orange:#fdcb6e;--pink:#fd79a8}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+header{padding:10px 20px;display:flex;align-items:center;gap:16px;background:var(--surface);border-bottom:1px solid #2a2a40}
+header h1{font-size:18px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.badge{font-size:11px;padding:3px 8px;border-radius:10px;background:var(--surface2);color:var(--dim);border:1px solid #2a2a40}
+.main{display:flex;flex:1;overflow:hidden}
+.canvas-wrap{flex:1;position:relative;cursor:crosshair}
+canvas#graph{width:100%;height:100%}
+.spectrum-bar{position:absolute;bottom:0;left:0;right:0;height:80px;background:linear-gradient(transparent,rgba(13,13,26,.9));pointer-events:none;display:flex;align-items:flex-end;padding:0 20px 8px;gap:2px}
+.spectrum-bar .bar{flex:1;background:var(--accent);border-radius:2px 2px 0 0;transition:height .15s;min-width:3px;max-width:12px}
+.sidebar{width:340px;background:var(--surface);border-left:1px solid #2a2a40;display:flex;flex-direction:column;overflow-y:auto}
+.panel{padding:14px 16px;border-bottom:1px solid #2a2a40}
+.panel h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);margin-bottom:10px}
+.presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.btn{padding:8px 12px;border:1px solid #2a2a40;border-radius:6px;background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px;transition:all .15s;text-align:center}
+.btn:hover{border-color:var(--accent);background:#252540}
+.btn.primary{background:var(--accent);border-color:var(--accent);font-weight:600}
+.btn.primary:hover{background:#7c6cf7}
+.btn.danger{border-color:var(--red);color:var(--red)}
+.btn.danger:hover{background:rgba(255,107,107,.1)}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:13px}
+.stat-row .label{color:var(--dim)}
+.stat-row .value{font-weight:600;font-variant-numeric:tabular-nums}
+.cr-meter{height:8px;border-radius:4px;background:#1a1a2e;overflow:hidden;margin:8px 0}
+.cr-meter .fill{height:100%;border-radius:4px;transition:width .3s,background .3s}
+.style-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.play-controls{display:flex;gap:6px;margin-top:8px}
+.eigen-list{max-height:140px;overflow-y:auto;font-size:12px;font-family:'Consolas',monospace}
+.eigen-list div{padding:2px 0;display:flex;justify-content:space-between}
+.eigen-list .idx{color:var(--dim);width:30px}
+.eigen-list .val{color:var(--accent2)}
+.eigen-list .note{color:var(--green);width:30px;text-align:right}
+.tooltip{position:absolute;background:var(--surface2);border:1px solid #2a2a40;border-radius:6px;padding:6px 10px;font-size:11px;pointer-events:none;z-index:10;display:none}
+footer{padding:8px 20px;background:var(--surface);border-top:1px solid #2a2a40;font-size:11px;color:var(--dim);display:flex;justify-content:space-between}
+@keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
+.playing-indicator{animation:pulse 1s infinite;color:var(--green)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎵 Conservation Composer</h1>
+  <span class="badge" id="nodeCount">0 nodes</span>
+  <span class="badge" id="edgeCount">0 edges</span>
+  <span class="badge" id="status">Ready</span>
+</header>
+<div class="main">
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="graph"></canvas>
+    <div class="spectrum-bar" id="spectrum"></div>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+  <div class="sidebar">
+    <div class="panel">
+      <h3>Presets</h3>
+      <div class="presets">
+        <button class="btn" onclick="loadPreset('star')">⭐ Star Graph</button>
+        <button class="btn" onclick="loadPreset('complete')">🔗 Complete Graph</button>
+        <button class="btn" onclick="loadPreset('jazz')">🎷 Jazz ii-V-I</button>
+        <button class="btn" onclick="loadPreset('chaos')">🌪️ Random Chaos</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Actions</h3>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <button class="btn danger" onclick="clearGraph()">Clear</button>
+        <button class="btn" onclick="randomGraph()">Random</button>
+      </div>
+      <div class="play-controls">
+        <button class="btn primary" id="playBtn" onclick="togglePlay()">▶ Play</button>
+        <button class="btn" onclick="exportWAV()">💾 Export WAV</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Conservation Ratio</h3>
+      <div class="stat-row"><span class="label">CR</span><span class="value" id="crValue">—</span></div>
+      <div class="cr-meter"><div class="fill" id="crFill"></div></div>
+      <div class="stat-row"><span class="label">Style</span><span id="styleBadge" class="style-badge">—</span></div>
+      <div class="stat-row"><span class="label">Key</span><span class="value" id="keyInfo">—</span></div>
+      <div class="stat-row"><span class="label">BPM</span><span class="value" id="bpmInfo">120</span></div>
+    </div>
+    <div class="panel">
+      <h3>Fiedler Vector</h3>
+      <div id="fiedlerInfo" style="font-size:12px;color:var(--dim)">Add nodes and edges to compute</div>
+    </div>
+    <div class="panel">
+      <h3>Eigenvalues (λ)</h3>
+      <div class="eigen-list" id="eigenList"><div style="color:var(--dim)">No graph yet</div></div>
+    </div>
+    <div class="panel">
+      <h3>How to Use</h3>
+      <div style="font-size:11px;color:var(--dim);line-height:1.5">
+        <b>Click</b> canvas → add node<br>
+        <b>Drag</b> node → move node<br>
+        <b>Shift+drag</b> node→node → add edge<br>
+        <b>Right-click</b> node → remove<br>
+        <b>Scroll</b> → adjust BPM
+      </div>
+    </div>
+  </div>
+</div>
+<footer>
+  <span>Graph Laplacian → Music | Web Audio API</span>
+  <span id="footerStatus"></span>
+</footer>
+
+<script>
+// ==================== STATE ====================
+const nodes = [];
+const edges = [];
+let nextId = 0;
+let bpm = 120;
+let isPlaying = false;
+let currentAudioCtx = null;
+let scheduledOscillators = [];
+let animFrame = null;
+
+// Canvas
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('canvasWrap');
+let W, H;
+
+// Drag state
+let dragNode = null;
+let dragOffset = {x:0, y:0};
+let edgeStart = null;
+let isDragging = false;
+let isEdgeDrag = false;
+let mouseX = 0, mouseY = 0;
+
+// Spectrum
+const spectrumEl = document.getElementById('spectrum');
+const NUM_BARS = 32;
+for(let i=0;i<NUM_BARS;i++){
+  const b=document.createElement('div');b.className='bar';b.style.height='4px';
+  spectrumEl.appendChild(b);
+}
+const bars = spectrumEl.querySelectorAll('.bar');
+
+// ==================== CANVAS SETUP ====================
+function resize(){
+  const r = wrap.getBoundingClientRect();
+  W = r.width; H = r.height - 80;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width = W+'px';
+  canvas.style.height = H+'px';
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  draw();
+}
+window.addEventListener('resize', resize);
+setTimeout(resize, 50);
+
+// ==================== GRAPH OPS ====================
+function addNode(x, y){
+  const node = {id: nextId++, x, y, fiedler: 0};
+  nodes.push(node);
+  updateUI();
+  draw();
+  return node;
+}
+function addEdge(a, b){
+  if(a===b) return;
+  if(edges.find(e=>(e.a===a&&e.b===b)||(e.a===b&&e.b===a))) return;
+  edges.push({a, b, weight: 1});
+  updateUI();
+  draw();
+}
+function removeNode(id){
+  const i = nodes.findIndex(n=>n.id===id);
+  if(i>=0) nodes.splice(i,1);
+  for(let j=edges.length-1;j>=0;j--){
+    if(edges[j].a===id||edges[j].b===id) edges.splice(j,1);
+  }
+  updateUI(); draw();
+}
+function clearGraph(){
+  nodes.length=0; edges.length=0; nextId=0;
+  stopPlay(); updateUI(); draw();
+}
+function nodeAt(x,y){
+  for(let i=nodes.length-1;i>=0;i--){
+    const n=nodes[i];
+    if((n.x-x)**2+(n.y-y)**2 < 400) return n;
+  }
+  return null;
+}
+
+// ==================== LINEAR ALGEBRA ====================
+function buildLaplacian(){
+  const n = nodes.length;
+  if(n===0) return null;
+  const L = Array.from({length:n},()=>new Float64Array(n));
+  const idx = {};
+  nodes.forEach((nd,i)=>idx[nd.id]=i);
+  for(const e of edges){
+    const i=idx[e.a], j=idx[e.b];
+    if(i===undefined||j===undefined) continue;
+    L[i][j] -= e.weight;
+    L[j][i] -= e.weight;
+    L[i][i] += e.weight;
+    L[j][j] += e.weight;
+  }
+  return L;
+}
+
+// Power iteration for eigenvalues (symmetric tridiagonal approach for small matrices)
+function eigenDecomp(L){
+  const n = L.length;
+  if(n===0) return {eigenvalues:[], eigenvectors:[]};
+  if(n===1) return {eigenvalues:[0], eigenvectors:[[1]]};
+
+  // QR algorithm with shifts for symmetric matrices
+  // First, reduce to tridiagonal via Householder
+  let A = L.map(r=>Float64Array.from(r));
+  
+  // Jacobi eigenvalue algorithm for symmetric matrices
+  const V = Array.from({length:n},(_,i)=>{
+    const v=new Float64Array(n); v[i]=1; return v;
+  });
+  
+  const maxIter = n * n * 30;
+  for(let iter=0; iter<maxIter; iter++){
+    // Find largest off-diagonal element
+    let maxVal=0, p=0, q=1;
+    for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+      if(Math.abs(A[i][j])>maxVal){maxVal=Math.abs(A[i][j]);p=i;q=j;}
+    }
+    if(maxVal<1e-10) break;
+    
+    // Compute rotation
+    const app=A[p][p], aqq=A[q][q], apq=A[p][q];
+    let theta;
+    if(Math.abs(app-aqq)<1e-15) theta=Math.PI/4;
+    else theta=0.5*Math.atan2(2*apq, app-aqq);
+    const c=Math.cos(theta), s=Math.sin(theta);
+    
+    // Apply rotation
+    for(let i=0;i<n;i++){
+      const aip=A[i][p], aiq=A[i][p]!==undefined?A[i][q]:0;
+      const vip=V[i][p], viq=V[i][q];
+      // Wait, V is transposed. Let me fix.
+    }
+    // Actually, let's do this properly
+    // Rotate A: A' = G^T A G
+    const newA = A.map(r=>Float64Array.from(r));
+    for(let i=0;i<n;i++){
+      if(i!==p&&i!==q){
+        newA[i][p]=c*A[i][p]+s*A[i][q];
+        newA[p][i]=newA[i][p];
+        newA[i][q]=-s*A[i][p]+c*A[i][q];
+        newA[q][i]=newA[i][q];
+      }
+    }
+    newA[p][p]=c*c*app+2*s*c*apq+s*s*aqq;
+    newA[q][q]=s*s*app-2*s*c*apq+c*c*aqq;
+    newA[p][q]=0; newA[q][p]=0;
+    A=newA;
+    
+    // Rotate eigenvectors: V' = V G
+    for(let i=0;i<n;i++){
+      const vip=V[i][p], viq=V[i][q];
+      V[i][p]=c*vip+s*viq;
+      V[i][q]=-s*vip+c*viq;
+    }
+  }
+  
+  // Extract eigenvalues and sort
+  const pairs=[];
+  for(let i=0;i<n;i++) pairs.push({val:A[i][i], vec:Array.from(V.map(v=>v[i]))});
+  pairs.sort((a,b)=>a.val-b.val);
+  
+  return {
+    eigenvalues: pairs.map(p=>p.val),
+    eigenvectors: pairs.map(p=>p.vec)
+  };
+}
+
+// ==================== MUSIC MAPPING ====================
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const A4 = 440;
+
+function midiToFreq(midi){ return 440 * Math.pow(2,(midi-69)/12); }
+function freqToMidi(f){ return 69 + 12*Math.log2(f/440); }
+function midiToName(midi){ return NOTE_NAMES[Math.round(midi)%12] + (Math.floor(Math.round(midi)/12)-1); }
+
+function computeConservationRatio(eigenvalues){
+  if(eigenvalues.length<2) return 0;
+  // CR = λ₂ / λₙ (normalized algebraic connectivity / spectral radius)
+  const l2 = eigenvalues[1];
+  const ln = eigenvalues[eigenvalues.length-1];
+  if(ln < 1e-10) return 0;
+  return l2 / ln;
+}
+
+function getMusicalParams(eigenvalues, fiedlerVec){
+  const n = eigenvalues.length;
+  if(n<2) return null;
+  
+  const cr = computeConservationRatio(eigenvalues);
+  const bpmActual = cr > 0.7 ? 100 : cr > 0.3 ? 130 : 160;
+  
+  // Determine root and scale based on CR
+  let rootMidi, scale;
+  if(cr > 0.7){
+    // Consonant, major
+    rootMidi = 60; // C4
+    scale = [0,2,4,5,7,9,11]; // Major
+  } else if(cr > 0.3){
+    // Jazz, extended
+    rootMidi = 60;
+    scale = [0,2,4,6,7,9,10,11]; // melodic minor / jazz
+  } else {
+    // Atonal
+    rootMidi = 60;
+    scale = [0,1,2,3,4,5,6,7,8,9,10,11]; // chromatic
+  }
+  
+  // Map eigenvalues to notes
+  const notes = [];
+  const maxEigen = eigenvalues[eigenvalues.length-1] || 1;
+  
+  for(let i=0; i<n; i++){
+    const lambda = eigenvalues[i];
+    let midi;
+    
+    if(i===0){
+      // λ₁ = drone/root
+      midi = rootMidi - 12; // Bass drone
+    } else if(i===1){
+      // λ₂ = tonal center
+      midi = rootMidi;
+    } else if(i<=4){
+      // λ₃-λ₅ = chord tones, map relative to λ₂
+      const ratio = lambda / maxEigen;
+      const scaleIdx = Math.min(Math.floor(ratio * scale.length * 2), scale.length-1);
+      midi = rootMidi + scale[scaleIdx];
+      if(i===3) midi += 4; // offset for variety
+      if(i===4) midi += 7;
+    } else {
+      // Higher = overtones/tension
+      const ratio = lambda / maxEigen;
+      const octaveShift = Math.floor((i-5)/3);
+      const scaleIdx = Math.floor(ratio * scale.length) % scale.length;
+      midi = rootMidi + 12 + octaveShift * 12 + scale[scaleIdx];
+    }
+    
+    // Duration from Fiedler vector
+    const fiedlerVal = fiedlerVec ? fiedlerVec[Math.min(i, fiedlerVec.length-1)] : 0;
+    // positive = long, negative = short
+    const durMult = Math.max(0.25, 1 + fiedlerVal * 0.8);
+    
+    // Amplitude
+    let amp;
+    if(i===0) amp = 0.15; // drone quieter
+    else if(i===1) amp = 0.25;
+    else if(i<=4) amp = 0.12;
+    else amp = Math.max(0.03, 0.08 / (1 + (i-4)*0.3));
+    
+    notes.push({midi, freq: midiToFreq(midi), duration: durMult, amplitude: amp, eigenIdx: i, eigenVal: lambda});
+  }
+  
+  return {cr, bpm: bpmActual, rootMidi, scale, notes};
+}
+
+// ==================== AUDIO ENGINE ====================
+let audioCtx = null;
+
+function getAudioCtx(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playSequence(){
+  if(isPlaying) { stopPlay(); return; }
+  
+  const L = buildLaplacian();
+  if(!L || nodes.length<2) return;
+  
+  const {eigenvalues, eigenvectors} = eigenDecomp(L);
+  const fiedler = eigenvectors[1] || [];
+  
+  // Store Fiedler values on nodes
+  nodes.forEach((nd,i)=>{ nd.fiedler = fiedler[i]||0; });
+  
+  const params = getMusicalParams(eigenvalues, fiedler);
+  if(!params) return;
+  
+  const actx = getAudioCtx();
+  if(actx.state==='suspended') actx.resume();
+  
+  isPlaying = true;
+  currentAudioCtx = actx;
+  document.getElementById('playBtn').textContent = '⏹ Stop';
+  document.getElementById('status').innerHTML = '<span class="playing-indicator">♪ Playing</span>';
+  
+  const beatDur = 60 / params.bpm;
+  const totalBeats = 16;
+  let maxEndTime = 0;
+  
+  // Create master gain
+  const master = actx.createGain();
+  master.gain.value = 0.6;
+  master.connect(actx.destination);
+  
+  // Create reverb (simple delay-based)
+  const convolver = actx.createGain(); // skip actual convolver for simplicity
+  const delay = actx.createDelay();
+  delay.delayTime.value = beatDur * 0.75;
+  const feedback = actx.createGain();
+  feedback.gain.value = 0.3;
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(master);
+  
+  const dryGain = actx.createGain();
+  dryGain.gain.value = 0.8;
+  dryGain.connect(master);
+  const wetGain = actx.createGain();
+  wetGain.gain.value = 0.2;
+  wetGain.connect(delay);
+  
+  scheduledOscillators = [];
+  let t = actx.currentTime + 0.1;
+  
+  // Play multiple passes
+  for(let beat=0; beat<totalBeats; beat++){
+    const beatStart = t + beat * beatDur;
+    
+    // Which notes play this beat? Cycle through them
+    for(let ni=0; ni<params.notes.length; ni++){
+      const note = params.notes[ni];
+      const noteDur = beatDur * note.duration;
+      
+      // Skip some notes rhythmically based on beat position and Fiedler
+      if(ni > 0){ // always play root
+        const fiedlerVal = fiedler[ni] || 0;
+        const prob = 0.3 + 0.4 * (1 + fiedlerVal) / 2; // 0.3-0.7
+        // Simple pseudo-random from beat+ni
+        const hash = Math.sin(beat * 127.1 + ni * 311.7) * 43758.5453;
+        if((hash - Math.floor(hash)) > prob) continue;
+      }
+      
+      // Drone plays on beats 0,4,8,12
+      if(ni===0 && beat%4!==0) continue;
+      
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      
+      // Waveform based on index
+      if(ni===0) osc.type = 'sawtooth';
+      else if(ni<=2) osc.type = 'triangle';
+      else if(ni<=5) osc.type = 'sine';
+      else osc.type = 'square';
+      
+      osc.frequency.value = note.freq;
+      
+      // Slight detuning for richness
+      if(ni > 0 && ni <= 4){
+        osc.detune.value = Math.sin(beat * 0.5) * 5;
+      }
+      
+      // ADSR envelope
+      const attackTime = 0.01 + note.duration * 0.05;
+      const decayTime = noteDur * 0.2;
+      const sustainLevel = note.amplitude * 0.7;
+      const releaseTime = 0.05;
+      
+      gain.gain.setValueAtTime(0, beatStart);
+      gain.gain.linearRampToValueAtTime(note.amplitude, beatStart + attackTime);
+      gain.gain.linearRampToValueAtTime(sustainLevel, beatStart + attackTime + decayTime);
+      gain.gain.setValueAtTime(sustainLevel, beatStart + noteDur - releaseTime);
+      gain.gain.linearRampToValueAtTime(0, beatStart + noteDur);
+      
+      osc.connect(gain);
+      gain.connect(dryGain);
+      gain.connect(wetGain);
+      
+      osc.start(beatStart);
+      osc.stop(beatStart + noteDur + 0.01);
+      scheduledOscillators.push(osc);
+      
+      maxEndTime = Math.max(maxEndTime, beatStart + noteDur);
+    }
+  }
+  
+  // Animate spectrum during playback
+  animateSpectrum(params, totalBeats * beatDur);
+  
+  // Auto-stop
+  const totalDur = (totalBeats * beatDur + 0.5) * 1000;
+  setTimeout(()=>{
+    if(isPlaying) stopPlay();
+  }, totalDur);
+}
+
+function stopPlay(){
+  isPlaying = false;
+  scheduledOscillators.forEach(o=>{try{o.stop()}catch(e){}});
+  scheduledOscillators = [];
+  if(animFrame) cancelAnimationFrame(animFrame);
+  document.getElementById('playBtn').textContent = '▶ Play';
+  document.getElementById('status').textContent = 'Ready';
+  bars.forEach(b=>b.style.height='4px');
+}
+
+function togglePlay(){ playSequence(); }
+
+function animateSpectrum(params, duration){
+  const startTime = performance.now();
+  const actx = currentAudioCtx;
+  
+  function update(){
+    if(!isPlaying) return;
+    const elapsed = (performance.now() - startTime) / 1000;
+    if(elapsed > duration){ return; }
+    
+    bars.forEach((bar, i)=>{
+      const phase = elapsed * (2 + i * 0.3) + i * 0.5;
+      const base = params.notes[Math.min(i % params.notes.length, params.notes.length-1)];
+      const amp = base ? base.amplitude : 0.1;
+      const h = 4 + (Math.sin(phase) * 0.5 + 0.5) * amp * 200;
+      bar.style.height = Math.max(4, Math.min(70, h)) + 'px';
+      
+      // Color based on note
+      const hue = 240 + (i / NUM_BARS) * 120; // purple to teal
+      bar.style.background = `hsl(${hue}, 70%, ${50 + amp*30}%)`;
+    });
+    
+    animFrame = requestAnimationFrame(update);
+  }
+  update();
+}
+
+// ==================== WAV EXPORT ====================
+async function exportWAV(){
+  if(nodes.length<2) return;
+  
+  const L = buildLaplacian();
+  const {eigenvalues, eigenvectors} = eigenDecomp(L);
+  const fiedler = eigenvectors[1] || [];
+  const params = getMusicalParams(eigenvalues, fiedler);
+  if(!params) return;
+  
+  const beatDur = 60 / params.bpm;
+  const totalBeats = 16;
+  const duration = totalBeats * beatDur + 1;
+  const sampleRate = 44100;
+  
+  document.getElementById('status').textContent = 'Rendering WAV...';
+  
+  const offCtx = new OfflineAudioContext(1, sampleRate * duration, sampleRate);
+  
+  const master = offCtx.createGain();
+  master.gain.value = 0.6;
+  master.connect(offCtx.destination);
+  
+  const delay = offCtx.createDelay();
+  delay.delayTime.value = beatDur * 0.75;
+  const fb = offCtx.createGain(); fb.gain.value = 0.3;
+  delay.connect(fb); fb.connect(delay); delay.connect(master);
+  
+  const dryGain = offCtx.createGain(); dryGain.gain.value = 0.8; dryGain.connect(master);
+  const wetGain = offCtx.createGain(); wetGain.gain.value = 0.2; wetGain.connect(delay);
+  
+  for(let beat=0; beat<totalBeats; beat++){
+    const beatStart = beat * beatDur + 0.05;
+    for(let ni=0; ni<params.notes.length; ni++){
+      const note = params.notes[ni];
+      const noteDur = beatDur * note.duration;
+      
+      if(ni > 0){
+        const fiedlerVal = fiedler[ni] || 0;
+        const prob = 0.3 + 0.4 * (1 + fiedlerVal) / 2;
+        const hash = Math.sin(beat * 127.1 + ni * 311.7) * 43758.5453;
+        if((hash - Math.floor(hash)) > prob) continue;
+      }
+      if(ni===0 && beat%4!==0) continue;
+      
+      const osc = offCtx.createOscillator();
+      const gain = offCtx.createGain();
+      
+      if(ni===0) osc.type='sawtooth'; else if(ni<=2) osc.type='triangle';
+      else if(ni<=5) osc.type='sine'; else osc.type='square';
+      osc.frequency.value = note.freq;
+      
+      const atk = 0.01 + note.duration*0.05;
+      const dec = noteDur*0.2;
+      const sus = note.amplitude*0.7;
+      gain.gain.setValueAtTime(0, beatStart);
+      gain.gain.linearRampToValueAtTime(note.amplitude, beatStart+atk);
+      gain.gain.linearRampToValueAtTime(sus, beatStart+atk+dec);
+      gain.gain.setValueAtTime(sus, beatStart+noteDur-0.05);
+      gain.gain.linearRampToValueAtTime(0, beatStart+noteDur);
+      
+      osc.connect(gain); gain.connect(dryGain); gain.connect(wetGain);
+      osc.start(beatStart); osc.stop(beatStart+noteDur+0.01);
+    }
+  }
+  
+  const buffer = await offCtx.startRendering();
+  
+  // Encode WAV
+  const wav = encodeWAV(buffer);
+  const blob = new Blob([wav], {type:'audio/wav'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'conservation-composer.wav';
+  a.click(); URL.revokeObjectURL(url);
+  
+  document.getElementById('status').textContent = 'WAV exported!';
+  setTimeout(()=>{ document.getElementById('status').textContent = 'Ready'; }, 2000);
+}
+
+function encodeWAV(buffer){
+  const numCh = buffer.numberOfChannels;
+  const sr = buffer.sampleRate;
+  const bitsPerSample = 16;
+  const samples = buffer.getChannelData(0);
+  const dataLen = samples.length * (bitsPerSample/8);
+  const buf = new ArrayBuffer(44 + dataLen);
+  const view = new DataView(buf);
+  
+  function writeStr(offset, str){ for(let i=0;i<str.length;i++) view.setUint8(offset+i, str.charCodeAt(i)); }
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36+dataLen, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sr, true);
+  view.setUint32(28, sr * 1 * bitsPerSample/8, true);
+  view.setUint16(32, 1 * bitsPerSample/8, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataLen, true);
+  
+  let offset = 44;
+  for(let i=0;i<samples.length;i++){
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s*0x8000 : s*0x7FFF, true);
+    offset += 2;
+  }
+  return buf;
+}
+
+// ==================== PRESETS ====================
+function loadPreset(name){
+  clearGraph();
+  const cx = W/2, cy = H/2, r = Math.min(W,H)*0.3;
+  
+  if(name==='star'){
+    // Star: center + 5 spokes
+    const center = addNode(cx, cy);
+    for(let i=0;i<5;i++){
+      const a = -Math.PI/2 + i*Math.PI*2/5;
+      const n = addNode(cx + Math.cos(a)*r, cy + Math.sin(a)*r);
+      addEdge(center.id, n.id);
+    }
+  } else if(name==='complete'){
+    // K6
+    const ids = [];
+    for(let i=0;i<6;i++){
+      const a = -Math.PI/2 + i*Math.PI*2/6;
+      ids.push(addNode(cx+Math.cos(a)*r, cy+Math.sin(a)*r).id);
+    }
+    for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++) addEdge(ids[i],ids[j]);
+  } else if(name==='jazz'){
+    // ii-V-I structure: three clusters connected
+    const clusters = [[-1,0],[0,0.3],[1,0]];
+    const ids = [];
+    clusters.forEach(([ox,oy])=>{
+      const cluster = [];
+      for(let i=0;i<3;i++){
+        const a = i*Math.PI*2/3;
+        const n = addNode(cx+ox*r*0.6+Math.cos(a)*50, cy+oy*r+Math.sin(a)*50);
+        cluster.push(n.id);
+        ids.push(n.id);
+      }
+      // Connect within cluster
+      addEdge(cluster[0],cluster[1]); addEdge(cluster[1],cluster[2]); addEdge(cluster[0],cluster[2]);
+    });
+    // Connect clusters
+    addEdge(ids[2],ids[3]); addEdge(ids[5],ids[6]);
+  } else if(name==='chaos'){
+    // Random sparse graph
+    const count = 8;
+    const ids = [];
+    for(let i=0;i<count;i++){
+      const x = cx + (Math.random()-0.5)*r*2;
+      const y = cy + (Math.random()-0.5)*r*1.5;
+      ids.push(addNode(x,y).id);
+    }
+    // Sparse random edges
+    for(let i=0;i<count;i++){
+      const targets = Math.floor(Math.random()*2)+1;
+      for(let t=0;t<targets;t++){
+        const j = Math.floor(Math.random()*count);
+        addEdge(ids[i],ids[j]);
+      }
+    }
+  }
+  updateUI();
+}
+
+function randomGraph(){
+  clearGraph();
+  const cx = W/2, cy = H/2;
+  const count = 4 + Math.floor(Math.random()*5);
+  const ids = [];
+  for(let i=0;i<count;i++){
+    const x = cx + (Math.random()-0.5)*W*0.6;
+    const y = cy + (Math.random()-0.5)*H*0.6;
+    ids.push(addNode(x,y).id);
+  }
+  const edgeCount = count + Math.floor(Math.random()*count);
+  for(let e=0;e<edgeCount;e++){
+    addEdge(ids[Math.floor(Math.random()*count)], ids[Math.floor(Math.random()*count)]);
+  }
+}
+
+// ==================== DRAWING ====================
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  
+  // Background grid
+  ctx.strokeStyle = '#1a1a30';
+  ctx.lineWidth = 0.5;
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  
+  // Compute Fiedler for coloring
+  let fiedler = null;
+  if(nodes.length>=2 && edges.length>=1){
+    const L = buildLaplacian();
+    if(L){
+      const {eigenvalues, eigenvectors} = eigenDecomp(L);
+      fiedler = eigenvectors[1] || null;
+      if(fiedler){
+        nodes.forEach((nd,i)=>{ nd.fiedler = fiedler[i]||0; });
+      }
+    }
+  }
+  
+  // Draw edges
+  const nodeMap = {};
+  nodes.forEach(n=>nodeMap[n.id]=n);
+  
+  for(const e of edges){
+    const a = nodeMap[e.a], b = nodeMap[e.b];
+    if(!a||!b) continue;
+    
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = e.weight > 0.5 ? 'rgba(108,92,231,0.5)' : 'rgba(108,92,231,0.25)';
+    ctx.lineWidth = 1 + e.weight;
+    ctx.stroke();
+  }
+  
+  // Edge being drawn
+  if(isEdgeDrag && edgeStart){
+    ctx.beginPath();
+    ctx.moveTo(edgeStart.x, edgeStart.y);
+    ctx.lineTo(mouseX, mouseY);
+    ctx.strokeStyle = 'rgba(162,155,254,0.6)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5,5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  
+  // Draw nodes
+  const fiedlerVals = nodes.map(n=>n.fiedler);
+  const fMin = Math.min(...fiedlerVals);
+  const fMax = Math.max(...fiedlerVals);
+  const fRange = fMax - fMin || 1;
+  
+  nodes.forEach((nd,i)=>{
+    const fiedlerNorm = (nd.fiedler - fMin) / fRange;
+    
+    // Color: negative Fiedler = cool (blue/teal), positive = warm (pink/orange)
+    const hue = fiedlerNorm < 0.5 ? 180 + fiedlerNorm*40 : 300 + (fiedlerNorm-0.5)*40;
+    const sat = 70;
+    const light = 55;
+    
+    // Glow
+    const gradient = ctx.createRadialGradient(nd.x, nd.y, 0, nd.x, nd.y, 25);
+    gradient.addColorStop(0, `hsla(${hue},${sat}%,${light}%,0.3)`);
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(nd.x-25, nd.y-25, 50, 50);
+    
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(nd.x, nd.y, 14, 0, Math.PI*2);
+    ctx.fillStyle = `hsl(${hue},${sat}%,${light}%)`;
+    ctx.fill();
+    ctx.strokeStyle = `hsl(${hue},${sat}%,${light+20}%)`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(nd.id, nd.x, nd.y);
+  });
+}
+
+// ==================== INTERACTION ====================
+canvas.addEventListener('mousedown', e=>{
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const nd = nodeAt(x, y);
+  
+  if(e.button===2) return; // handled by contextmenu
+  
+  if(e.shiftKey && nd){
+    isEdgeDrag = true;
+    edgeStart = nd;
+    mouseX = x; mouseY = y;
+  } else if(nd){
+    isDragging = true;
+    dragNode = nd;
+    dragOffset = {x: nd.x - x, y: nd.y - y};
+  } else {
+    addNode(x, y);
+  }
+});
+
+canvas.addEventListener('mousemove', e=>{
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+  
+  if(isDragging && dragNode){
+    dragNode.x = mouseX + dragOffset.x;
+    dragNode.y = mouseY + dragOffset.y;
+    draw();
+  } else if(isEdgeDrag){
+    draw();
+  }
+});
+
+canvas.addEventListener('mouseup', e=>{
+  if(isEdgeDrag && edgeStart){
+    const nd = nodeAt(mouseX, mouseY);
+    if(nd && nd !== edgeStart){
+      addEdge(edgeStart.id, nd.id);
+    }
+  }
+  isDragging = false;
+  dragNode = null;
+  isEdgeDrag = false;
+  edgeStart = null;
+  draw();
+});
+
+canvas.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const nd = nodeAt(x, y);
+  if(nd) removeNode(nd.id);
+});
+
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  bpm = Math.max(40, Math.min(240, bpm + (e.deltaY > 0 ? -5 : 5)));
+  document.getElementById('bpmInfo').textContent = bpm;
+}, {passive: false});
+
+// ==================== UI UPDATE ====================
+function updateUI(){
+  document.getElementById('nodeCount').textContent = nodes.length + ' nodes';
+  document.getElementById('edgeCount').textContent = edges.length + ' edges';
+  
+  if(nodes.length < 2 || edges.length < 1){
+    document.getElementById('crValue').textContent = '—';
+    document.getElementById('crFill').style.width = '0%';
+    document.getElementById('styleBadge').textContent = '—';
+    document.getElementById('keyInfo').textContent = '—';
+    document.getElementById('eigenList').innerHTML = '<div style="color:var(--dim)">Need ≥2 nodes and ≥1 edge</div>';
+    document.getElementById('fiedlerInfo').innerHTML = 'Need a connected graph';
+    return;
+  }
+  
+  const L = buildLaplacian();
+  const {eigenvalues, eigenvectors} = eigenDecomp(L);
+  const fiedler = eigenvectors[1] || [];
+  const cr = computeConservationRatio(eigenvalues);
+  
+  // CR display
+  document.getElementById('crValue').textContent = cr.toFixed(4);
+  const fill = document.getElementById('crFill');
+  fill.style.width = (cr*100)+'%';
+  if(cr>0.7){fill.style.background='var(--green)';}
+  else if(cr>0.3){fill.style.background='var(--orange)';}
+  else{fill.style.background='var(--red)';}
+  
+  // Style
+  const badge = document.getElementById('styleBadge');
+  if(cr>0.7){badge.textContent='Consonant / Major';badge.style.background='rgba(0,206,201,.15)';badge.style.color='var(--green)';}
+  else if(cr>0.3){badge.textContent='Jazz / Extended';badge.style.background='rgba(253,203,110,.15)';badge.style.color='var(--orange)';}
+  else{badge.textContent='Atonal / Experimental';badge.style.background='rgba(255,107,107,.15)';badge.style.color='var(--red)';}
+  
+  // Key info
+  const params = getMusicalParams(eigenvalues, fiedler);
+  if(params){
+    document.getElementById('keyInfo').textContent = midiToName(params.rootMidi) + (cr>0.7?' Major':cr>0.3?' Jazz':' Chromatic');
+    document.getElementById('bpmInfo').textContent = params.bpm;
+  }
+  
+  // Fiedler info
+  const fiedlerHtml = fiedler.map((v,i)=>`<span style="color:${v>=0?'var(--green)':'var(--red)'}">n${nodes[i]?.id??i}: ${v.toFixed(3)}</span>`).join(' &nbsp; ');
+  document.getElementById('fiedlerInfo').innerHTML = fiedlerHtml;
+  
+  // Eigenvalue list
+  const listEl = document.getElementById('eigenList');
+  listEl.innerHTML = eigenvalues.map((v,i)=>{
+    const noteName = i < params.notes.length ? midiToName(params.notes[i].midi) : '—';
+    const role = i===0?'drone':i===1?'root':i<=4?'chord':'overtone';
+    return `<div><span class="idx">λ${i+1}</span><span class="val">${v.toFixed(4)}</span><span class="note">${noteName}</span></div>`;
+  }).join('');
+}
+
+// ==================== INIT ====================
+setTimeout(resize, 100);
+</script>
+</body>
+</html>
