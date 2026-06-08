@@ -5,8 +5,20 @@ on:
   pull_request:
     branches: [ main, master ]
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "No CI configured — customize per project requirements"
+      - name: Check HTML is valid
+        run: |
+          # Verify index.html exists and is non-empty
+          test -s index.html
+          # Basic HTML validation: check for doctype and closing tags
+          grep -q '<!DOCTYPE html>' index.html
+          grep -q '</html>' index.html
+      - name: Check required files exist
+        run: |
+          test -f README.md
+          test -f LICENSE
+          test -f CHANGELOG.md
+          test -f CONTRIBUTING.md
