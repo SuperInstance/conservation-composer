@@ -1,0 +1,15 @@
+[package]
+rust-version = "1.70"
+readme = "README.md"
+name = "conservation-composer"
+version = "0.2.0"
+edition = "2021"
+description = "Conservation-governed music composition — graph Laplacian eigenvalues mapped to harmony"
+license = "MIT"
+repository = "https://github.com/SuperInstance/conservation-composer"
+keywords = ["music", "spectral", "graph", "laplacian", "composition"]
+categories = ["multimedia::audio", "mathematics"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
